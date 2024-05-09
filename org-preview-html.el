@@ -54,7 +54,7 @@
 
 (defcustom org-preview-html-refresh-configuration 'save
   "Specifies how often the HTML preview will be refreshed.
-  
+
 If `manual', update manually by running `org-preview-html-refresh'.
 If `save', update on save (default).
 If `export', update on manual export \(using `org-html-export-to-html').
@@ -75,25 +75,23 @@ If `timer', update preview on timer (`org-preview-html-timer-interval')."
   "Which Emacs browser `org-preview-html-mode' will use.
 
 If `eww', use eww browser (default).
-If `xwidget', use xwidget browser."
+If `xwidget', use xwidget browser.
+if `system', use system default browser. Auto refresh is not supported in this mode."
   :type '(choice
 		  (symbol :tag "Use eww"      eww)
-		  (symbol :tag "Use xwidget"  xwidget))
+		  (symbol :tag "Use xwidget"  xwidget)
+          (symbol :tag "Use system default browser" system))
   :group 'org-preview-html)
-
-(define-obsolete-variable-alias 'org-preview-html/body-only 'org-preview-html-subtree-only "Version 0.3")
 
 (defcustom org-preview-html-subtree-only nil
   "If non-nil, scope the preview to the current subtree."
   :type 'boolean
   :group 'org-preview-html)
 
-(defcustom org-preview-html/body-only nil
-  "Scope the preview to the body or include the entire document.
-Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
-  :type 'boolean
+(defcustom org-preview-export-path "/tmp"
+  "Default export path of html"
+  :type 'string
   :group 'org-preview-html)
-
 
 ;; Internal variables
 (defvar org-preview-html--browser-buffer nil)
@@ -115,8 +113,8 @@ Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
 ;; Without this here 27.1 required. With, 25.1.
 (defun org-preview-html--previous-window-any-frame ()
   (select-window (previous-window (selected-window)
-				  (> (minibuffer-depth) 0)
-				  0))
+				                  (> (minibuffer-depth) 0)
+				                  0))
   (select-frame-set-input-focus (selected-frame)))
 
 (defun org-preview-html-refresh ()
@@ -125,7 +123,8 @@ Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
   (when (eq org-preview-html-refresh-configuration 'manual)
  	(pop-to-buffer org-preview-html--previewed-buffer-name nil t))
   (org-preview-html--org-export-html)
-  (org-preview-html--reload-preview))
+  (unless (eq org-preview-html-viewer 'system)
+    (org-preview-html--reload-preview)))
 
 (defun org-preview-html--org-export-html ()
   "Silently export org to HTML."
@@ -136,7 +135,6 @@ Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
 (defun org-preview-html--reload-preview ()
   "Reload preview."
   (save-selected-window
-	(pop-to-buffer org-preview-html--browser-buffer)
 	(cond ((eq org-preview-html-viewer 'xwidget) (xwidget-webkit-reload))
 		  ((eq org-preview-html-viewer 'eww)
 		   (with-selected-window (selected-window)
@@ -194,26 +192,33 @@ Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
   (dolist (var '(org-preview-html--browser-buffer org-preview-html--previewed-buffer-name))
 	(set var nil)))
 
-(defun org-preview-html--open-browser ()
+;;;###autoload
+(defun org-preview-html-open-browser ()
   "Open a browser to preview the exported HTML file."
+  (interactive)
+  (unless org-preview-html-mode
+    (org-preview-html-mode))
   ;; Store the exported HTML filename
-  (setq-local org-preview-html--html-file (concat (file-name-sans-extension buffer-file-name) ".html"))
+  (setq-local org-preview-html--html-file
+              (expand-file-name
+               (concat (file-name-sans-extension (file-name-nondirectory buffer-file-name)) ".html") org-preview-export-path))
+  (message org-preview-html--html-file)
   (org-preview-html--org-export-html) ;; Export the org file to HTML
   ;; Procedure to open the side-by-side preview
-  (split-window-right)
-  (other-window 1)
   (let ((file org-preview-html--html-file))
-	(cond ((eq org-preview-html-viewer 'xwidget) (xwidget-webkit-browse-url (concat "file://" file)))
-		  ((eq org-preview-html-viewer 'eww) (eww-open-file file))))
-  (setq org-preview-html--browser-buffer (get-buffer (buffer-name)))
-  (org-preview-html--previous-window-any-frame))
+    (if (eq org-preview-html-viewer 'system)
+        (shell-command (format "open \"%s\"" org-preview-html--html-file))
+      (split-window-right)
+      (other-window 1)
+      (cond ((eq org-preview-html-viewer 'xwidget) (xwidget-webkit-browse-url (concat "file://" file)))
+		    ((eq org-preview-html-viewer 'eww) (eww-open-file file)))
+      (setq org-preview-html--browser-buffer (get-buffer (buffer-name)))
+      (org-preview-html--previous-window-any-frame))))
 
 (defun org-preview-html--start-preview ()
-  "Begin the org-preview-html preview."
+  "Begin the org-preview-html-mode."
   (when buffer-file-name
 	(cond ((derived-mode-p 'org-mode)
-		   (message "org-preview-html has recieved a major update - xwidgets support, refresh configurations and more! \n M-x customize-group org-preview-html-mode")
-		   (org-preview-html--open-browser)
 		   (org-preview-html--config))
 		  (t
 		   (org-preview-html-mode -1)
@@ -223,7 +228,6 @@ Obselete as of version 0.3, instead use `org-preview-html-subtree-only'."
   "Stop the org-preview-html preview."
   (org-preview-html--kill-preview-buffer)
   (org-preview-html--unconfig))
-
 
 ;;;###autoload
 (define-minor-mode org-preview-html-mode
